@@ -2,6 +2,7 @@ package net.openhft.chronicle.core.latencybenchmark;
 
 import net.openhft.chronicle.core.Jvm;
 import net.openhft.chronicle.core.util.Histogram;
+import net.openhft.chronicle.core.util.NanoSampler;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -13,6 +14,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Created by daniel on 03/03/2016.
  */
 public class LatencyTestHarness {
+    public static final Double[] NO_DOUBLES = {};
+    private final Map<String, Histogram> additionHistograms = new HashMap<>();
     private int messageCount = -1;
     private int warmUp = 10000;
     private int throughput = 10_000;
@@ -26,8 +29,6 @@ public class LatencyTestHarness {
     private boolean recordOSJitter = true;
     private long noResultsReturned;
     private AtomicBoolean warmUpComplete = new AtomicBoolean(false);
-    private final Map<String, Histogram>additionHistograms = new HashMap<>();
-
     //Use non-atomic when so thread synchronisation is necessary
     private boolean warmedUp;
 
@@ -74,7 +75,7 @@ public class LatencyTestHarness {
         return this;
     }
 
-    public Histogram createAdditionalHistogram(String name){
+    public NanoSampler createAdditionalSampler(String name){
         return additionHistograms.computeIfAbsent(name, n->new Histogram());
     }
 
@@ -122,7 +123,12 @@ public class LatencyTestHarness {
             System.out.println("-------------------------------- BENCHMARK RESULTS (RUN " + (run + 1) + ") --------------------------------------------------------");
             System.out.println("Correcting for co-ordinated:" + accountForCoordinatedOmmission);
             System.out.println("Target throughtput:" + throughput + "/s" + " = 1 message every " + (rate / 1000) + "us");
-            System.out.println("TotalCount:" + histogram.totalCount());
+            System.out.println("TotalCount (whole run):" + histogram.totalCount());
+            if (additionHistograms.size() > 0) {
+                additionHistograms.entrySet().stream().forEach(e -> {
+                    System.out.println("TotalCount (" + e.getKey() + "):" + e.getValue().totalCount());
+                });
+            }
             System.out.printf("%-40s", "whole run:");
             System.out.println(histogram.toMicrosFormat());
 
@@ -162,13 +168,27 @@ public class LatencyTestHarness {
         double maxValue = Double.MIN_VALUE;
         double minValue = Double.MAX_VALUE;
         for(int i=0; i<percentileRuns.get(0).length; i++){
+            double total_log = 0;
             for(int j=0; j<percentileRuns.size(); j++){
-                if(percentileRuns.get(j)[i] > maxValue)
-                    maxValue = percentileRuns.get(j)[i];
-                if(percentileRuns.get(j)[i] < minValue)
-                    minValue = percentileRuns.get(j)[i];
+                double v = percentileRuns.get(j)[i];
+                if (v > maxValue)
+                    maxValue = v;
+                if (v < minValue)
+                    minValue = v;
+                total_log += Math.log10(v);
             }
             consistencies.add(100 * (maxValue-minValue)/(maxValue+minValue/2));
+
+
+            double avg_log = total_log / percentileRuns.size();
+            double total_sqr_log = 0;
+            for (int j = 0; j < percentileRuns.size(); j++) {
+                double v = percentileRuns.get(j)[i];
+                double logv = Math.log(v);
+                total_sqr_log += (logv - avg_log) * (logv - avg_log);
+            }
+            double var_log = total_sqr_log / (percentileRuns.size()-1);
+            consistencies.add(var_log);
             maxValue = Double.MIN_VALUE;
             minValue = Double.MAX_VALUE;
         }
@@ -178,7 +198,8 @@ public class LatencyTestHarness {
             for(int j=0; j<percentileRuns.size(); j++){
                 summary.add(percentileRuns.get(j)[i]/1e3);
             }
-            summary.add(consistencies.get(i));
+            summary.add(consistencies.get(i*2));
+            summary.add(consistencies.get(i*2 + 1));
         }
 
         StringBuilder sb = new StringBuilder();
@@ -193,7 +214,7 @@ public class LatencyTestHarness {
         addPrToPrint(sb, "99.99:", runs);
         addPrToPrint(sb, "worst:", runs);
 
-        System.out.printf(sb.toString(), summary.toArray(new Double[0]));
+        System.out.printf(sb.toString(), summary.toArray(NO_DOUBLES));
         System.out.println("-------------------------------------------------------------------------------------------------------------------");
     }
 
@@ -202,7 +223,9 @@ public class LatencyTestHarness {
         for(int i=0; i<runs; i++){
             sb.append("%12.2f ");
         }
-        sb.append("%12.4f%n");
+        sb.append("%12.2f");
+        sb.append("%12.2f");
+        sb.append("%n");
     }
 
     private void addHeaderToPrint(StringBuilder sb, int runs){
@@ -214,16 +237,22 @@ public class LatencyTestHarness {
              sb.append("         run" + i);
         }
         sb.append("      % Variation");
+        sb.append("   var(log)");
     }
 
 
     public void sample(long nanoTime) {
         noResultsReturned++;
         if (noResultsReturned < warmUp && !warmedUp) {
+            histogram.sample(nanoTime);
             return;
         }
         if (noResultsReturned == warmUp && !warmedUp) {
             warmedUp = true;
+            histogram.reset();
+            if(additionHistograms.size()>0){
+                additionHistograms.values().forEach(Histogram::reset);
+            }
             warmUpComplete.set(true);
             return;
         }
