@@ -1,17 +1,17 @@
 /*
- *     Copyright (C) 2015  higherfrequencytrading.com
+ * Copyright 2016 higherfrequencytrading.com
  *
- *     This program is free software: you can redistribute it and/or modify
- *     it under the terms of the GNU Lesser General Public License as published by
- *     the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     This program is distributed in the hope that it will be useful,
- *     but WITHOUT ANY WARRANTY; without even the implied warranty of
- *     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *     GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *     You should have received a copy of the GNU Lesser General Public License
- *     along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 package net.openhft.chronicle.core.util;
 
@@ -27,9 +27,9 @@ import java.util.Objects;
  * Represents an operation that accepts a single {@code float}-valued argument and returns no result.  This is the
  * primitive type specialization of {@link java.util.function.Consumer} for {@code float}.  Unlike most other functional
  * interfaces, {@code FloatConsumer} is expected to operate via side-effects.
- * <p>
- * <p>This is a <a href="package-summary.html">functional interface</a> whose functional method is
- * {@link #accept(float)}.
+ *
+ * <p>This is a <a href="package-summary.html">functional interface</a> whose functional method is {@link
+ * #accept(float)}.
  *
  * @see java.util.function.Consumer
  * @since 1.8
@@ -45,12 +45,12 @@ public interface FloatConsumer {
     void accept(float value);
 
     /**
-     * Returns a composed {@code IntConsumer} that performs, in sequence, this operation followed by the {@code after}
+     * Returns a composed {@code FloatConsumer} that performs, in sequence, this operation followed by the {@code after}
      * operation. If performing either operation throws an exception, it is relayed to the caller of the composed
      * operation.  If performing this operation throws an exception, the {@code after} operation will not be performed.
      *
      * @param after the operation to perform after this operation
-     * @return a composed {@code IntConsumer} that performs in sequence this operation followed by the {@code after}
+     * @return a composed {@code FloatConsumer} that performs in sequence this operation followed by the {@code after}
      * operation
      * @throws NullPointerException if {@code after} is null
      */

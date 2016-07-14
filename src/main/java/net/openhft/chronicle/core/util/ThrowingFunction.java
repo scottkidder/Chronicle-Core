@@ -1,22 +1,53 @@
 /*
- *     Copyright (C) 2015  higherfrequencytrading.com
+ * Copyright 2016 higherfrequencytrading.com
  *
- *     This program is free software: you can redistribute it and/or modify
- *     it under the terms of the GNU Lesser General Public License as published by
- *     the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     This program is distributed in the hope that it will be useful,
- *     but WITHOUT ANY WARRANTY; without even the implied warranty of
- *     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *     GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *     You should have received a copy of the GNU Lesser General Public License
- *     along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.core.util;
 
+import net.openhft.chronicle.core.Jvm;
+
+import java.util.function.Function;
+
+/**
+ * Represents a function that accepts one argument and produces a result.
+ * <p/>
+ * <p>This is a <a href="package-summary.html">functional interface</a>
+ * whose functional method is {@link #apply(Object)}.
+ *
+ * @param <I> the type of the input to the function
+ * @param <T> the type of Throwable thrown
+ * @param <R> the type of the result of the function
+ */
 @FunctionalInterface
-public interface ThrowingFunction<I, T extends Throwable, R> {
+public interface ThrowingFunction<I, R, T extends Throwable> {
+    static <I, R, T extends Throwable> Function<I, R> asFunction(ThrowingFunction<I, R, T> function) {
+        return in -> {
+            try {
+                return function.apply(in);
+
+            } catch (Throwable t) {
+                throw Jvm.rethrow(t);
+            }
+        };
+    }
+
+    /**
+     * Applies this function to the given argument.
+     *
+     * @param in the function argument
+     * @return the function result
+     */
     R apply(I in) throws T;
 }

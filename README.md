@@ -18,14 +18,16 @@ Off Heap Memory Access
 This allows you to access native memory using primitives and some thread safe operations.
 
 ```java
-Memory m = OS.memory();
+Memory memory = OS.memory();
+long address = memory.allocate(1024);
 try {
-    long addr = m.allocate(1024);
-    m.writeInt(0L, 1);
-    boolean b = m.compareAndSwap(0L, 1, 2);
-    assert b;
+    memory.writeInt(address, 1);
+    assert memory.readInt(address) == 1;
+    final boolean swapped = memory.compareAndSwapInt(address, 1, 2);
+    assert swapped;
+    assert memory.readInt(address) == 2;
 } finally {
-    m.free(addr);
+    memory.freeMemory(address, 1024);
 }
 ```
 
@@ -70,7 +72,7 @@ String targetDir = OS.getTarget(); // where is the target directory during build
 
 Memory mapped files
 ```java
-FileChanel fc = new RandomAccessFile(fileName, "rw").getFileChannel();
+FileChannel fc = new RandomAccessFile(fileName, "rw").getChannel();
 // map in 64 KiB
 long address = OS.map(fc, MapMode.READ_WRITE, 0, 64 << 10);
 // use address

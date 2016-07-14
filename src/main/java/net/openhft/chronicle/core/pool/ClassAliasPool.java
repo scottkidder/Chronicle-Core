@@ -1,33 +1,33 @@
 /*
- *     Copyright (C) 2015  higherfrequencytrading.com
+ * Copyright 2016 higherfrequencytrading.com
  *
- *     This program is free software: you can redistribute it and/or modify
- *     it under the terms of the GNU Lesser General Public License as published by
- *     the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     This program is distributed in the hope that it will be useful,
- *     but WITHOUT ANY WARRANTY; without even the implied warranty of
- *     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *     GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *     You should have received a copy of the GNU Lesser General Public License
- *     along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.core.pool;
 
 import net.openhft.chronicle.core.Jvm;
 
+import java.lang.reflect.Array;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.Set;
+import java.time.ZonedDateTime;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class ClassAliasPool implements ClassLookup {
-    public static final ClassAliasPool CLASS_ALIASES = new ClassAliasPool(null, Thread.currentThread().getContextClassLoader()).defaultAliases();
+    public static final ClassAliasPool CLASS_ALIASES = new ClassAliasPool(null).defaultAliases();
     private final ClassLookup parent;
     private final ClassLoader classLoader;
     private final Map<String, Class> stringClassMap = new ConcurrentHashMap<>();
@@ -39,8 +39,17 @@ public class ClassAliasPool implements ClassLookup {
         this.classLoader = classLoader;
     }
 
+    ClassAliasPool(ClassLookup parent) {
+        this.parent = parent;
+        this.classLoader = Thread.currentThread().getContextClassLoader();
+    }
+
     private ClassAliasPool defaultAliases() {
-        addAlias(Set.class);
+        addAlias(Set.class, "!set");
+        addAlias(SortedSet.class, "!oset");
+        addAlias(List.class, "!seq");
+        addAlias(Map.class, "!map");
+        addAlias(SortedMap.class, "!omap");
         addAlias(String.class, "String, !str");
         addAlias(CharSequence.class);
         addAlias(Byte.class, "byte, int8");
@@ -53,8 +62,12 @@ public class ClassAliasPool implements ClassLookup {
         addAlias(LocalDate.class, "Date");
         addAlias(LocalDateTime.class, "DateTime");
         addAlias(LocalTime.class, "Time");
+        addAlias(ZonedDateTime.class, "ZonedDateTime");
         addAlias(String[].class, "String[]");
-        addAlias(byte[].class, "byte[]");
+        for (Class prim : new Class[]{boolean.class, byte.class, short.class, char.class, int.class, long.class, float.class, double.class})
+            addAlias(Array.newInstance(prim, 0).getClass(), prim.getName() + "[]");
+        addAlias(Class.class, "type");
+        addAlias(void.class, "!null");
 
         return this;
     }
@@ -86,8 +99,13 @@ public class ClassAliasPool implements ClassLookup {
         if (clazz != null)
             return clazz;
         clazz = stringClassMap2.get(name0);
-        if (clazz != null)
-            return clazz;
+        if (clazz != null) return clazz;
+        return parent == null
+                ? forName0(name, name0)
+                : parent.forName(name);
+    }
+
+    private Class forName0(CharSequence name, String name0) {
         return stringClassMap2.computeIfAbsent(name0, n -> {
             try {
                 return Class.forName(name0, true, classLoader);
@@ -106,7 +124,15 @@ public class ClassAliasPool implements ClassLookup {
 
     @Override
     public String nameFor(Class clazz) {
+        String name = classStringMap.get(clazz);
+        return name == null
+                ? parent == null
+                ? nameFor0(clazz)
+                : parent.nameFor(clazz)
+                : name;
+    }
 
+    private String nameFor0(Class clazz) {
         return classStringMap.computeIfAbsent(clazz, (aClass) -> {
             if (Enum.class.isAssignableFrom(aClass)) {
                 Class clazz2 = aClass.getSuperclass();

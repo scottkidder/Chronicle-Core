@@ -1,29 +1,34 @@
 /*
- *     Copyright (C) 2015  higherfrequencytrading.com
+ * Copyright 2016 higherfrequencytrading.com
  *
- *     This program is free software: you can redistribute it and/or modify
- *     it under the terms of the GNU Lesser General Public License as published by
- *     the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     This program is distributed in the hope that it will be useful,
- *     but WITHOUT ANY WARRANTY; without even the implied warranty of
- *     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *     GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *     You should have received a copy of the GNU Lesser General Public License
- *     along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.core;
 
+import net.openhft.chronicle.core.threads.ThreadDump;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
 
 import java.math.BigDecimal;
 import java.security.SecureRandom;
 import java.util.Random;
+import java.util.stream.DoubleStream;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
 
 /**
  * User: peter.lawrey
@@ -31,6 +36,19 @@ import static org.junit.Assert.assertEquals;
  * Time: 10:31
  */
 public class MathsTest {
+
+    private ThreadDump threadDump;
+
+    @Before
+    public void threadDump() {
+        threadDump = new ThreadDump();
+    }
+
+    @After
+    public void checkThreadDump() {
+        threadDump.assertNoNewThreads();
+    }
+
     @Test
     public void testIntLog2() {
         for (int i = 0; i < 63; i++) {
@@ -70,6 +88,22 @@ public class MathsTest {
             if (d < 1e8)
                 assertEquals(bd.setScale(8, BigDecimal.ROUND_HALF_UP).doubleValue(), Maths.round8(d), 5e-8);
         }
+    }
+
+    @Test
+    @Ignore("Long running")
+    public void longRunningRound() {
+        double[] ds = new double[17];
+        ds[0] = 1e-4;
+        for (int i = 1; i < ds.length; i++)
+            ds[i] = 2 * ds[i - 1];
+
+        DoubleStream.of(ds).parallel()
+                .forEach(x -> {
+                    for (double d = x; d <= 2 * x && d < 10; d += Math.ulp(d))
+                        if (Double.toString(Maths.round4(d)).length() > 6)
+                            fail("d: " + d);
+                });
     }
 
     @Test

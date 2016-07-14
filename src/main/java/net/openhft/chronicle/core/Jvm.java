@@ -1,24 +1,27 @@
 /*
- *     Copyright (C) 2015  higherfrequencytrading.com
+ * Copyright 2016 higherfrequencytrading.com
  *
- *     This program is free software: you can redistribute it and/or modify
- *     it under the terms of the GNU Lesser General Public License as published by
- *     the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     This program is distributed in the hope that it will be useful,
- *     but WITHOUT ANY WARRANTY; without even the implied warranty of
- *     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *     GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *     You should have received a copy of the GNU Lesser General Public License
- *     along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.core;
 
+import net.openhft.chronicle.core.onoes.*;
 import sun.misc.VM;
 
 import java.lang.reflect.Field;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantLock;
@@ -31,11 +34,18 @@ import static java.lang.management.ManagementFactory.getRuntimeMXBean;
 public enum Jvm {
     ;
 
-    public static final boolean IS_DEBUG = getRuntimeMXBean().getInputArguments().toString().contains("jdwp") || Boolean.getBoolean("debug");
-    static final Class bitsClass;
-    static final Field reservedMemory;
-    static final AtomicLong reservedMemoryAtomicLong;
-    static final DirectMemoryInspector DIRECT_MEMORY_INSPECTOR;
+    private static final boolean IS_DEBUG = getRuntimeMXBean().getInputArguments().toString().contains("jdwp") || Boolean.getBoolean("debug");
+    // e.g-verbose:gc  -XX:+UnlockCommercialFeatures -XX:+FlightRecorder -XX:StartFlightRecording=dumponexit=true,filename=myrecording.jfr,settings=profile -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints
+
+    private static final boolean IS_FLIGHT_RECORDER = (" " + getRuntimeMXBean().getInputArguments()).contains(" -XX:+FlightRecorder") || Boolean.getBoolean("jfr");
+    private static final Class bitsClass;
+    private static final Field reservedMemory;
+    private static final AtomicLong reservedMemoryAtomicLong;
+    private static final DirectMemoryInspector DIRECT_MEMORY_INSPECTOR;
+    private static final boolean IS_64BIT = is64bit0();
+    private static ExceptionHandler FATAL = Slf4jExceptionHandler.FATAL;
+    private static ExceptionHandler WARN = Slf4jExceptionHandler.WARN;
+    private static ExceptionHandler DEBUG = Slf4jExceptionHandler.DEBUG;
 
     static {
         try {
@@ -52,6 +62,20 @@ public enum Jvm {
         } catch (Exception e) {
             throw new AssertionError(e);
         }
+    }
+
+    private static boolean is64bit0() {
+        String systemProp;
+        systemProp = System.getProperty("com.ibm.vm.bitmode");
+        if (systemProp != null) {
+            return "64".equals(systemProp);
+        }
+        systemProp = System.getProperty("sun.arch.data.model");
+        if (systemProp != null) {
+            return "64".equals(systemProp);
+        }
+        systemProp = System.getProperty("java.vm.version");
+        return systemProp != null && systemProp.contains("_64");
     }
 
     /**
@@ -110,17 +134,25 @@ public enum Jvm {
     }
 
     /**
+     * @return is the JVM in flight recorder mode.
+     */
+    @SuppressWarnings("SameReturnValue")
+    public static boolean isFlightRecorder() {
+        return IS_FLIGHT_RECORDER;
+    }
+
+    /**
      * Silently pause for milli seconds.
      *
      * @param millis to sleep for.
      */
     public static void pause(long millis) {
         long timeNanos = millis * 1000000;
-        if (timeNanos > 1e9) {
+        if (timeNanos > 10e6) {
             try {
                 Thread.sleep(millis);
             } catch (InterruptedException e) {
-                throw new AssertionError(e);
+                Thread.currentThread().interrupt();
             }
         } else {
             LockSupport.parkNanos(timeNanos);
@@ -136,7 +168,6 @@ public enum Jvm {
     public static void busyWaitMicros(long micros) {
         long waitUntil = System.nanoTime() + (micros * 1_000);
         while (waitUntil > System.nanoTime()) {
-            ;
         }
     }
 
@@ -152,6 +183,7 @@ public enum Jvm {
             Field field = clazz.getDeclaredField(name);
             field.setAccessible(true);
             return field;
+
         } catch (NoSuchFieldException e) {
             Class superclass = clazz.getSuperclass();
             if (superclass != null)
@@ -212,6 +244,67 @@ public enum Jvm {
         return VM.maxDirectMemory();
     }
 
+    public static boolean is64bit() {
+        return IS_64BIT;
+    }
+
+    public static void resetExceptionHandlers() {
+        FATAL = Slf4jExceptionHandler.FATAL;
+        WARN = Slf4jExceptionHandler.WARN;
+        DEBUG = Slf4jExceptionHandler.DEBUG;
+    }
+
+    public static Map<ExceptionKey, Integer> recordExceptions() {
+        return recordExceptions(false);
+    }
+
+    public static Map<ExceptionKey, Integer> recordExceptions(boolean debug) {
+        Map<ExceptionKey, Integer> map = new LinkedHashMap<>();
+        FATAL = new RecordingExceptionHandler(LogLevel.FATAL, map);
+        WARN = new RecordingExceptionHandler(LogLevel.WARN, map);
+        DEBUG = debug ? new RecordingExceptionHandler(LogLevel.DEBUG, map) : NullExceptionHandler.NOTHING;
+        return map;
+    }
+
+    public static void setExceptionsHandlers(ExceptionHandler fatal, ExceptionHandler warn, ExceptionHandler debug) {
+        FATAL = fatal;
+        WARN = warn;
+        DEBUG = debug;
+    }
+
+    public static void disableDebugHandler() {
+        DEBUG = NullExceptionHandler.NOTHING;
+    }
+
+    public static ExceptionHandler fatal() {
+        return FATAL;
+    }
+
+    public static ExceptionHandler warn() {
+        return WARN;
+    }
+
+    public static ExceptionHandler debug() {
+        return DEBUG;
+    }
+
+    public static void dumpException(Map<ExceptionKey, Integer> exceptions) {
+        for (Map.Entry<ExceptionKey, Integer> entry : exceptions.entrySet()) {
+            ExceptionKey key = entry.getKey();
+            System.err.println(key.level + " " + key.clazz.getSimpleName() + " " + key.message);
+            if (key.throwable != null)
+                key.throwable.printStackTrace();
+            Integer value = entry.getValue();
+            if (value > 1)
+                System.err.println("Repeated " + value + " times");
+        }
+        resetExceptionHandlers();
+    }
+
+    public static boolean isDebugEnabled(Class aClass) {
+        return DEBUG.isEnabled(aClass);
+    }
+
     enum DirectMemoryInspector {
         Reflect {
             @Override
@@ -221,7 +314,7 @@ public enum Jvm {
                         return reservedMemory.getLong(null);
                     }
                 } catch (IllegalAccessException e) {
-                    throw new IllegalStateException(e);
+                    throw new AssertionError(e);
                 }
             }
         },

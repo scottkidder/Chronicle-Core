@@ -1,17 +1,17 @@
 /*
- *     Copyright (C) 2015  higherfrequencytrading.com
+ * Copyright 2016 higherfrequencytrading.com
  *
- *     This program is free software: you can redistribute it and/or modify
- *     it under the terms of the GNU Lesser General Public License as published by
- *     the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     This program is distributed in the hope that it will be useful,
- *     but WITHOUT ANY WARRANTY; without even the implied warranty of
- *     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *     GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *     You should have received a copy of the GNU Lesser General Public License
- *     along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.core.util;
@@ -19,17 +19,13 @@ package net.openhft.chronicle.core.util;
 import net.openhft.chronicle.core.ClassLocal;
 import net.openhft.chronicle.core.Jvm;
 import net.openhft.chronicle.core.OS;
+import net.openhft.chronicle.core.pool.ClassAliasPool;
 
-import java.lang.reflect.Array;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
+import java.lang.reflect.*;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Iterator;
-import java.util.Map;
+import java.util.*;
+import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
 /**
@@ -38,25 +34,115 @@ import java.util.function.Supplier;
 public enum ObjectUtils {
     ;
 
-    static final ClassLocal<Supplier> SUPPLIER_CLASS_LOCAL = ClassLocal.withInitial(c -> {
+    public static final Object[] NO_OBJECTS = {};
+    static final Map<Class, Class> primMap = new LinkedHashMap<Class, Class>() {{
+        put(boolean.class, Boolean.class);
+        put(byte.class, Byte.class);
+        put(char.class, Character.class);
+        put(short.class, Short.class);
+        put(int.class, Integer.class);
+        put(float.class, Float.class);
+        put(long.class, Long.class);
+        put(double.class, Double.class);
+        put(void.class, Void.class);
+    }};
+    static final Map<Class, Object> DEFAULT_MAP = new HashMap<>();
+    static final ClassLocal<ThrowingFunction<String, Object, Exception>> PARSER_CL = ClassLocal.withInitial(c -> {
+        if (c == Class.class)
+            return ClassAliasPool.CLASS_ALIASES::forName;
+
+        try {
+            Method valueOf = c.getDeclaredMethod("valueOf", String.class);
+            valueOf.setAccessible(true);
+            return s -> valueOf.invoke(null, s);
+        } catch (NoSuchMethodException e) {
+            // ignored
+        }
+
+        try {
+            Method valueOf = c.getDeclaredMethod("parse", CharSequence.class);
+            valueOf.setAccessible(true);
+            return s -> valueOf.invoke(null, s);
+
+        } catch (NoSuchMethodException e) {
+            // ignored
+        }
+        try {
+            Method valueOf = c.getDeclaredMethod("fromString", String.class);
+            valueOf.setAccessible(true);
+            return s -> valueOf.invoke(null, s);
+
+        } catch (NoSuchMethodException e) {
+            // ignored
+        }
+        try {
+            Constructor constructor = c.getDeclaredConstructor(String.class);
+            constructor.setAccessible(true);
+            return s -> constructor.newInstance(s);
+        } catch (Exception e) {
+            throw asCCE(e);
+        }
+    });
+    private static final ClassLocal<Supplier> SUPPLIER_CLASS_LOCAL = ClassLocal.withInitial(c -> {
+        if (c == null)
+            throw new NullPointerException();
+        if (c.isPrimitive())
+            throw new IllegalArgumentException("primitive: " + c.getName());
+        if (c.isInterface())
+            throw new IllegalArgumentException("interface: " + c.getName());
         try {
             Constructor constructor = c.getDeclaredConstructor();
             constructor.setAccessible(true);
+            return ThrowingSupplier.asSupplier((ThrowingSupplier<Object, ReflectiveOperationException>) constructor::newInstance);
+
+        } catch (Exception e) {
             return () -> {
                 try {
-                    return constructor.newInstance();
-                } catch (Exception e) {
-                    throw Jvm.rethrow(e);
+                    return OS.memory().allocateInstance(c);
+                } catch (InstantiationException e1) {
+                    throw Jvm.rethrow(e1);
                 }
             };
-        } catch (Exception e) {
-            return () -> OS.memory().allocateInstance(c);
         }
     });
 
+    static {
+        DEFAULT_MAP.put(boolean.class, false);
+        DEFAULT_MAP.put(byte.class, (byte) 0);
+        DEFAULT_MAP.put(short.class, (short) 0);
+        DEFAULT_MAP.put(char.class, (char) 0);
+        DEFAULT_MAP.put(int.class, 0);
+        DEFAULT_MAP.put(long.class, 0L);
+        DEFAULT_MAP.put(float.class, 0.0f);
+        DEFAULT_MAP.put(double.class, 0.0);
+    }
+
+    /**
+     * If the class is a primitive type, change it to the equivalent wrapper.
+     *
+     * @param eClass to check
+     * @return the wrapper class if eClass is a primitive type, or the eClass if not.
+     */
+    public static Class primToWrapper(Class eClass) {
+        Class clazz0 = primMap.get(eClass);
+        if (clazz0 != null)
+            eClass = clazz0;
+        return eClass;
+    }
+
     public static <E> E convertTo(Class<E> eClass, Object o)
             throws ClassCastException, IllegalArgumentException {
+        // shorter path.
+        return eClass == null || o == null || eClass.isInstance(o)
+                ? (E) o
+                : convertTo0(eClass, o);
+    }
+
+    static <E> E convertTo0(Class<E> eClass, Object o)
+            throws ClassCastException, IllegalArgumentException {
+        eClass = primToWrapper(eClass);
         if (eClass.isInstance(o) || o == null) return (E) o;
+        if (eClass == Void.class) return null;
         if (Enum.class.isAssignableFrom(eClass)) {
             return (E) Enum.valueOf((Class) eClass, o.toString());
         }
@@ -73,27 +159,9 @@ public enum ObjectUtils {
                 return (E) s;
 
             try {
-                Method valueOf = eClass.getDeclaredMethod("valueOf", String.class);
-                valueOf.setAccessible(true);
-                return (E) valueOf.invoke(null, s);
+                return (E) PARSER_CL.get(eClass).apply(s);
 
-            } catch (InvocationTargetException | IllegalAccessException | IllegalArgumentException e) {
-                throw asCCE(e);
-            } catch (NoSuchMethodException e) {
-            }
-            try {
-                Constructor<E> constructor = eClass.getDeclaredConstructor(String.class);
-                constructor.setAccessible(true);
-                return constructor.newInstance(s);
             } catch (Exception e) {
-                if (s.length() == 0) {
-                    try {
-                        return newInstance(eClass);
-                    } catch (Exception e2) {
-                        throw asCCE(e);
-                    }
-                }
-
                 throw asCCE(e);
             }
         }
@@ -104,6 +172,9 @@ public enum ObjectUtils {
             return (E) o;
         if (Object[].class.isAssignableFrom(eClass)) {
             return convertToArray(eClass, o);
+        }
+        if (Set.class.isAssignableFrom(eClass)) {
+            return (E) new LinkedHashSet((Collection) o);
         }
 //        if (Collection.class.isAssignableFrom(eClass)) {
 //            return convertCollection(eClass, o);
@@ -120,11 +191,13 @@ public enum ObjectUtils {
     private static <E> E convertToArray(Class<E> eClass, Object o)
             throws IllegalArgumentException {
         int len = sizeOf(o);
-        Object array = Array.newInstance(eClass, len);
+        Object array = Array.newInstance(eClass.getComponentType(), len);
         Iterator iter = iteratorFor(o);
         Class elementType = elementType(eClass);
-        for (int i = 0; i < len; i++)
-            Array.set(array, i, convertTo(elementType, iter.next()));
+        for (int i = 0; i < len; i++) {
+            Object value = convertTo(elementType, iter.next());
+            Array.set(array, i, value);
+        }
         return (E) array;
     }
 
@@ -201,5 +274,64 @@ public enum ObjectUtils {
     public static <T> T newInstance(Class<T> clazz) {
         Supplier cons = SUPPLIER_CLASS_LOCAL.get(clazz);
         return (T) cons.get();
+    }
+
+    public static <T> T[] addAll(T first, T... additional) {
+        T[] interfaces;
+        if (additional.length == 0) {
+            interfaces = (T[]) Array.newInstance(first.getClass(), 1);
+            interfaces[0] = first;
+        } else {
+            List<T> objs = new ArrayList<>();
+            objs.add(first);
+            Collections.addAll(objs, additional);
+            interfaces = objs.toArray((T[]) Array.newInstance(first.getClass(), objs.size()));
+        }
+        return interfaces;
+    }
+
+    public static <T> T printAll(Class<T> tClass, Class... additional) {
+        return onMethodCall((method, args) -> {
+            String argsStr = args == null ? "()" : Arrays.toString(args);
+            System.out.println(method.getName() + " " + argsStr);
+            return defaultValue(method.getReturnType());
+        }, tClass, additional);
+    }
+
+    public static Object defaultValue(Class<?> type) {
+        return DEFAULT_MAP.get(type);
+    }
+
+    public static <T> T onMethodCall(BiFunction<Method, Object[], Object> biFunction, Class<T> tClass, Class... additional) {
+        Class[] interfaces = addAll(tClass, additional);
+        //noinspection unchecked
+        return (T) Proxy.newProxyInstance(tClass.getClassLoader(), interfaces, new InvocationHandler() {
+            @Override
+            public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+                if (method.getDeclaringClass() == Object.class) {
+                    return method.invoke(this, args);
+                }
+                return biFunction.apply(method, args);
+            }
+        });
+    }
+
+    public static Class getTypeFor(Class clazz, Class interfaceClass) {
+        return getTypeFor(clazz, interfaceClass, 0);
+    }
+
+    public static Class getTypeFor(Class clazz, Class interfaceClass, int index) {
+        for (Type type : clazz.getGenericInterfaces()) {
+            if (type instanceof ParameterizedType) {
+                ParameterizedType ptype = (ParameterizedType) type;
+                if (interfaceClass.isAssignableFrom((Class<?>) ptype.getRawType())) {
+                    Type type0 = ptype.getActualTypeArguments()[index];
+                    if (type0 instanceof Class)
+                        return (Class) type0;
+                    throw new IllegalArgumentException("The match super interface for " + clazz + " was not a concrete class, was " + ptype);
+                }
+            }
+        }
+        throw new IllegalArgumentException("No matching super interface for " + clazz + " which was a " + interfaceClass);
     }
 }

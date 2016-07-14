@@ -1,21 +1,22 @@
 /*
- *     Copyright (C) 2015  higherfrequencytrading.com
+ * Copyright 2016 higherfrequencytrading.com
  *
- *     This program is free software: you can redistribute it and/or modify
- *     it under the terms of the GNU Lesser General Public License as published by
- *     the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     This program is distributed in the hope that it will be useful,
- *     but WITHOUT ANY WARRANTY; without even the implied warranty of
- *     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *     GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *     You should have received a copy of the GNU Lesser General Public License
- *     along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.core.io;
 
+import net.openhft.chronicle.core.Jvm;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,7 +46,7 @@ public final class CloseablesManager implements Closeable {
         try {
             close(closeable);
         } catch (IOException e) {
-            LOG.error("", e);
+            Jvm.warn().on(getClass(), e);
         }
     }
 
@@ -59,9 +60,9 @@ public final class CloseablesManager implements Closeable {
             } catch (NullPointerException e) {
                 // at java.nio.channels.spi.AbstractSelectableChannel.removeKey
                 // (AbstractSelectableChannel.java:129) is throwing a NULL on close
-                LOG.debug("", e);
+                Jvm.warn().on(getClass(), e);
             } catch (IOException e) {
-                LOG.debug("", e);
+                Jvm.warn().on(getClass(), e);
                 ex = e;
             }
         }
@@ -72,11 +73,7 @@ public final class CloseablesManager implements Closeable {
     }
 
     public synchronized void closeQuietly() {
-        try {
-            close();
-        } catch (IOException e) {
-            // do nothing
-        }
+        net.openhft.chronicle.core.io.Closeable.closeQuietly(this);
     }
 
     public synchronized boolean isEmpty() {

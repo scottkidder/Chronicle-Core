@@ -1,26 +1,31 @@
 /*
- *     Copyright (C) 2015  higherfrequencytrading.com
+ * Copyright 2016 higherfrequencytrading.com
  *
- *     This program is free software: you can redistribute it and/or modify
- *     it under the terms of the GNU Lesser General Public License as published by
- *     the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     This program is distributed in the hope that it will be useful,
- *     but WITHOUT ANY WARRANTY; without even the implied warranty of
- *     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *     GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *     You should have received a copy of the GNU Lesser General Public License
- *     along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.core;
 
+import net.openhft.chronicle.core.threads.ThreadDump;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.lang.reflect.InvocationTargetException;
 import java.nio.channels.FileChannel;
 import java.nio.file.Paths;
 import java.util.UUID;
@@ -28,6 +33,18 @@ import java.util.UUID;
 import static org.junit.Assert.assertEquals;
 
 public class OSTest {
+
+    private ThreadDump threadDump;
+
+    @Before
+    public void threadDump() {
+        threadDump = new ThreadDump();
+    }
+
+    @After
+    public void checkThreadDump() {
+        threadDump.assertNoNewThreads();
+    }
     @Test
     public void testIs64Bit() {
         System.out.println("is64 = " + OS.is64Bit());
@@ -41,7 +58,7 @@ public class OSTest {
     @Test
     @Ignore("Failing on TC (linux agent) for unknown reason, anyway the goal of this test is to " +
             "test mapping granularity on windows")
-    public void testMapGranularity() throws Exception {
+    public void testMapGranularity() throws IOException, NoSuchMethodException, IllegalAccessException, InvocationTargetException {
         // tests that windows supports page mapping granularity
         long length = OS.pageSize();
         String name = Paths.get(OS.TARGET, "deleteme" + UUID.randomUUID().toString()).toString();
@@ -56,7 +73,7 @@ public class OSTest {
 
     @Test
     @Ignore("Should always pass, or crash the JVM based on length")
-    public void testMap()            throws Exception {
+    public void testMap() throws IOException, NoSuchMethodException, IllegalAccessException, InvocationTargetException {
         if (!OS.isWindows()) return;
 
         // crashes the JVM.
@@ -72,5 +89,4 @@ public class OSTest {
             OS.memory().writeLong(address + offset, offset);
         OS.unmap(address, length);
     }
-
 }

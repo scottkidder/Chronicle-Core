@@ -1,17 +1,17 @@
 /*
- *     Copyright (C) 2015  higherfrequencytrading.com
+ * Copyright 2016 higherfrequencytrading.com
  *
- *     This program is free software: you can redistribute it and/or modify
- *     it under the terms of the GNU Lesser General Public License as published by
- *     the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     This program is distributed in the hope that it will be useful,
- *     but WITHOUT ANY WARRANTY; without even the implied warranty of
- *     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *     GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *     You should have received a copy of the GNU Lesser General Public License
- *     along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.core;
@@ -36,10 +36,10 @@ import static java.lang.management.ManagementFactory.getRuntimeMXBean;
  */
 public enum OS {
     ;
+    public static final String TMP = System.getProperty("java.io.tmpdir");
+    public static final String TARGET = System.getProperty("project.build.directory", findTarget());
     private static final String HOST_NAME = getHostName0();
     private static final String USER_NAME = System.getProperty("user.name");
-    private static final String TMP = System.getProperty("java.io.tmpdir");
-    public static final String TARGET = System.getProperty("project.build.directory", findTarget());
     private static final Logger LOG = LoggerFactory.getLogger(OS.class);
     private static final int MAP_RO = 0;
     private static final int MAP_RW = 1;
@@ -54,6 +54,7 @@ public enum OS {
     private static final boolean IS_WIN10 = OS.equals("windows 10");
     private static final int MAP_ALIGNMENT = isWindows() ? 64 << 10 : pageSize();
     private static final Method UNMAPP0;
+
     /**
      * Unmap a region of memory.
      *
@@ -111,7 +112,7 @@ public enum OS {
             // expected
         } catch (NoSuchMethodException | InvocationTargetException
                 | IllegalAccessException | IllegalArgumentException e) {
-            LOG.warn("Unable to load Java9MemoryClass", e);
+            Jvm.warn().on(OS.class, "Unable to load Java9MemoryClass", e);
         }
         if (memory == null)
             memory = UnsafeMemory.INSTANCE;
@@ -206,7 +207,7 @@ public enum OS {
             pid = getRuntimeMXBean().getName().split("@", 0)[0];
         if (pid == null) {
             int rpid = new Random().nextInt(1 << 16);
-            LOG.warn("Unable to determine PID, picked a random number=" + rpid);
+            Jvm.warn().on(OS.class, "Unable to determine PID, picked a random number=" + rpid);
             return rpid;
 
         } else {
@@ -249,7 +250,7 @@ public enum OS {
                 try {
                     return Maths.nextPower2(new Scanner(file).nextLong(), 1);
                 } catch (FileNotFoundException e) {
-                    LOG.warn("", e);
+                    Jvm.debug().on(OS.class, e);
                 }
         } else if (isMacOSX()) {
             return 1L << 24;
@@ -333,7 +334,7 @@ public enum OS {
                 String du_k = run("du", "-ks", file.getAbsolutePath());
                 return Long.parseLong(du_k.substring(0, du_k.indexOf('\t')));
             } catch (IOException e) {
-                LOG.error("", e);
+                Jvm.warn().on(OS.class, e);
             }
         }
         return file.length();
@@ -376,7 +377,7 @@ public enum OS {
 
                 owner.release();
             } catch (IOException | IllegalStateException e) {
-                LOG.error("Error on unmap and release", e);
+                Jvm.warn().on(OS.class, "Error on unmap and release", e);
             }
         }
     }

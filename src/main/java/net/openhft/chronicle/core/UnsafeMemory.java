@@ -1,17 +1,17 @@
 /*
- *     Copyright (C) 2015  higherfrequencytrading.com
+ * Copyright 2016 higherfrequencytrading.com
  *
- *     This program is free software: you can redistribute it and/or modify
- *     it under the terms of the GNU Lesser General Public License as published by
- *     the Free Software Foundation, either version 3 of the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     This program is distributed in the hope that it will be useful,
- *     but WITHOUT ANY WARRANTY; without even the implied warranty of
- *     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *     GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *     You should have received a copy of the GNU Lesser General Public License
- *     along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package net.openhft.chronicle.core;
@@ -26,6 +26,11 @@ public enum UnsafeMemory implements Memory {
     INSTANCE;
 
     public static final Unsafe UNSAFE;
+    // see java.nio.Bits.copyMemory
+    // This number limits the number of bytes to copy per call to Unsafe's
+    // copyMemory method. A limit is imposed to allow for safepoint polling
+    // during a large copy
+    static final long UNSAFE_COPY_THRESHOLD = 1024L * 1024L;
 
     static {
         try {
@@ -38,14 +43,10 @@ public enum UnsafeMemory implements Memory {
 
     private final AtomicLong nativeMemoryUsed = new AtomicLong();
 
-    public <E> E allocateInstance(Class<E> clazz) {
-        try {
-            @SuppressWarnings("unchecked")
-            E e = (E) UNSAFE.allocateInstance(clazz);
-            return e;
-        } catch (InstantiationException e) {
-            throw Jvm.rethrow(e);
-        }
+    public <E> E allocateInstance(Class<E> clazz) throws InstantiationException {
+        @SuppressWarnings("unchecked")
+        E e = (E) UNSAFE.allocateInstance(clazz);
+        return e;
     }
 
     @Override
@@ -169,6 +170,7 @@ public enum UnsafeMemory implements Memory {
     @Override
     @ForceInline
     public void writeOrderedInt(long address, int i32) {
+//        assert (address & 0x3) == 0;
         UNSAFE.putOrderedInt(null, address, i32);
     }
 
@@ -271,24 +273,36 @@ public enum UnsafeMemory implements Memory {
     @Override
     @ForceInline
     public void copyMemory(long fromAddress, long address, long length) {
-        UNSAFE.copyMemory(fromAddress, address, length);
+        copyMemory0(null, fromAddress, null, address, length);
     }
 
     @Override
     @ForceInline
     public void copyMemory(byte[] bytes, int offset, Object obj2, long offset2, int length) {
-        UNSAFE.copyMemory(bytes, Unsafe.ARRAY_BYTE_BASE_OFFSET + offset, obj2, offset2, length);
+        copyMemory0(bytes, Unsafe.ARRAY_BYTE_BASE_OFFSET + offset, obj2, offset2, length);
     }
 
     @Override
     @ForceInline
     public void copyMemory(long fromAddress, Object obj2, long offset2, int length) {
-        UNSAFE.copyMemory(null, fromAddress, obj2, offset2, length);
+        copyMemory0(null, fromAddress, obj2, offset2, length);
+    }
+
+    void copyMemory0(Object from, long fromOffset, Object to, long toOffset, long length) {
+        // use a loop to ensure there is a safe point every so often.
+        while (length > 0) {
+            long size = Math.min(length, UNSAFE_COPY_THRESHOLD);
+            UNSAFE.copyMemory(from, fromOffset, to, toOffset, size);
+            length -= size;
+            fromOffset += size;
+            toOffset += size;
+        }
     }
 
     @Override
     @ForceInline
     public void writeOrderedLong(long address, long i) {
+//        assert (address & 0x7) == 0;
         UNSAFE.putOrderedLong(null, address, i);
     }
 
@@ -300,8 +314,9 @@ public enum UnsafeMemory implements Memory {
 
     @Override
     @ForceInline
-    public boolean compareAndSwapInt(long offset, int expected, int value) {
-        return UNSAFE.compareAndSwapInt(null, offset, expected, value);
+    public boolean compareAndSwapInt(long address, int expected, int value) {
+//        assert (address & 0x3) == 0;
+        return UNSAFE.compareAndSwapInt(null, address, expected, value);
     }
 
     @Override
@@ -312,8 +327,9 @@ public enum UnsafeMemory implements Memory {
 
     @Override
     @ForceInline
-    public boolean compareAndSwapLong(long offset, long expected, long value) {
-        return UNSAFE.compareAndSwapLong(null, offset, expected, value);
+    public boolean compareAndSwapLong(long address, long expected, long value) {
+//        assert (address & 0x7) == 0;
+        return UNSAFE.compareAndSwapLong(null, address, expected, value);
     }
 
     @Override
@@ -354,7 +370,21 @@ public enum UnsafeMemory implements Memory {
     @Override
     @ForceInline
     public int readVolatileInt(long address) {
-        return UNSAFE.getIntVolatile(null, address);
+        int value = UNSAFE.getIntVolatile(null, address);
+        if (/*value != 256 || */(address & 63) != 63) {
+            return value;
+        }
+//        Thread.yield();
+        int value2 = UNSAFE.getIntVolatile(null, address);
+        while (value2 != value) {
+            if (value == 256 || value2 == 256)
+                System.out.println(Long.toHexString(address) + " (" + (address & 63) + ") " +
+                        "was " + Integer.toHexString(value) +
+                        " is now " + Integer.toHexString(value2));
+            value = value2;
+            value2 = UNSAFE.getIntVolatile(null, address);
+        }
+        return value;
     }
 
     @Override
@@ -426,6 +456,7 @@ public enum UnsafeMemory implements Memory {
     @Override
     @ForceInline
     public void writeVolatileInt(long address, int i32) {
+//        assert (address & 0x3) == 0;
         UNSAFE.putIntVolatile(null, address, i32);
     }
 
@@ -438,6 +469,7 @@ public enum UnsafeMemory implements Memory {
     @Override
     @ForceInline
     public void writeVolatileFloat(long address, float f) {
+//        assert (address & 0x3) == 0;
         UNSAFE.putFloatVolatile(null, address, f);
     }
 
@@ -450,6 +482,7 @@ public enum UnsafeMemory implements Memory {
     @Override
     @ForceInline
     public void writeVolatileLong(long address, long i64) {
+//        assert (address & 0x7) == 0;
         UNSAFE.putLongVolatile(null, address, i64);
     }
 
@@ -462,6 +495,8 @@ public enum UnsafeMemory implements Memory {
     @Override
     @ForceInline
     public void writeVolatileDouble(long address, double d) {
+//        assert (address & 0x7) == 0;
+
         UNSAFE.putDoubleVolatile(null, address, d);
     }
 
@@ -474,26 +509,28 @@ public enum UnsafeMemory implements Memory {
     @Override
     @ForceInline
     public int addInt(long address, int increment) {
+//        assert (address & 0x3) == 0;
         return UNSAFE.getAndAddInt(null, address, increment) + increment;
     }
 
     @Override
     @ForceInline
     public int addInt(Object object, long offset, int increment) {
+//        assert (offset & 0x3) == 0;
         return UNSAFE.getAndAddInt(object, offset, increment) + increment;
     }
 
     @Override
     @ForceInline
     public long addLong(long address, long increment) {
+//        assert (address & 0x7) == 0;
         return UNSAFE.getAndAddLong(null, address, increment) + increment;
     }
 
     @Override
     @ForceInline
     public long addLong(Object object, long offset, long increment) {
+//        assert (offset & 0x7) == 0;
         return UNSAFE.getAndAddLong(object, offset, increment) + increment;
     }
-
-
 }
