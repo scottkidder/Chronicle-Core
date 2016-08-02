@@ -166,7 +166,16 @@ public enum Jvm {
      * @param micros Time in micros
      */
     public static void busyWaitMicros(long micros) {
-        long waitUntil = System.nanoTime() + (micros * 1_000);
+        busyWaitUntil(System.nanoTime() + (micros * 1_000));
+    }
+
+    /**
+     * This method is designed tobe used when the time to be
+     * waited is very small, typically under a millisecond.
+     *
+     * @param waitUntil nanosecond precision counter value to await.
+     */
+    public static void busyWaitUntil(long waitUntil) {
         while (waitUntil > System.nanoTime()) {
         }
     }

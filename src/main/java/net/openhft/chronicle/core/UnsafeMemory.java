@@ -43,6 +43,32 @@ public enum UnsafeMemory implements Memory {
 
     private final AtomicLong nativeMemoryUsed = new AtomicLong();
 
+    private static int retryReadVolatileInt(long address, int value) {
+        int value2 = UNSAFE.getIntVolatile(null, address);
+        while (value2 != value) {
+            if (value != 0 && value != 0x80000000)
+                System.out.println(Long.toHexString(address) + " (" + (address & 63) + ") " +
+                        "was " + Integer.toHexString(value) +
+                        " is now " + Integer.toHexString(value2));
+            value = value2;
+            value2 = UNSAFE.getIntVolatile(null, address);
+        }
+        return value;
+    }
+
+    private static long retryReadVolatileInt(long address, long value) {
+        long value2 = UNSAFE.getLongVolatile(null, address);
+        while (value2 != value) {
+            if (value != 0)
+                System.out.println(Long.toHexString(address) + " (" + (address & 63) + ") " +
+                        "was " + Long.toHexString(value) +
+                        " is now " + Long.toHexString(value2));
+            value = value2;
+            value2 = UNSAFE.getLongVolatile(null, address);
+        }
+        return value;
+    }
+
     public <E> E allocateInstance(Class<E> clazz) throws InstantiationException {
         @SuppressWarnings("unchecked")
         E e = (E) UNSAFE.allocateInstance(clazz);
@@ -364,6 +390,7 @@ public enum UnsafeMemory implements Memory {
     @Override
     @ForceInline
     public short readVolatileShort(long address) {
+        // TODO add support for a short split across cache lines.
         return UNSAFE.getShortVolatile(null, address);
     }
 
@@ -377,20 +404,12 @@ public enum UnsafeMemory implements Memory {
     @ForceInline
     public int readVolatileInt(long address) {
         int value = UNSAFE.getIntVolatile(null, address);
-        if (/*value != 256 || */(address & 63) != 63) {
+        if ((address & 63) <= 60) {
+            if (value == 0)
+                value = UNSAFE.getIntVolatile(null, address);
             return value;
         }
-//        Thread.yield();
-        int value2 = UNSAFE.getIntVolatile(null, address);
-        while (value2 != value) {
-            if (value == 256 || value2 == 256)
-                System.out.println(Long.toHexString(address) + " (" + (address & 63) + ") " +
-                        "was " + Integer.toHexString(value) +
-                        " is now " + Integer.toHexString(value2));
-            value = value2;
-            value2 = UNSAFE.getIntVolatile(null, address);
-        }
-        return value;
+        return retryReadVolatileInt(address, value);
     }
 
     @Override
@@ -402,6 +421,7 @@ public enum UnsafeMemory implements Memory {
     @Override
     @ForceInline
     public float readVolatileFloat(long address) {
+        // TODO add support for a float split across cache lines.
         return UNSAFE.getFloatVolatile(null, address);
     }
 
@@ -414,7 +434,11 @@ public enum UnsafeMemory implements Memory {
     @Override
     @ForceInline
     public long readVolatileLong(long address) {
-        return UNSAFE.getLongVolatile(null, address);
+        long value = UNSAFE.getLongVolatile(null, address);
+        if ((address & 63) <= 54) {
+            return value;
+        }
+        return retryReadVolatileInt(address, value);
     }
 
     @Override
@@ -426,6 +450,7 @@ public enum UnsafeMemory implements Memory {
     @Override
     @ForceInline
     public double readVolatileDouble(long address) {
+        // TODO add support for a double split across cache lines.
         return UNSAFE.getDoubleVolatile(null, address);
     }
 
